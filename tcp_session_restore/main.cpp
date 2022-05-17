@@ -17,9 +17,10 @@
 	} while(0)
 
 static enum Phase {
-	SYNC, 
-	CONN, 
-	CLOSE 
+	SYNC = 0, 
+	CONN = 1, 
+	CLOSE1 = 2,
+	CLOSE2 = 3
 };
 
 struct Connection 
@@ -35,18 +36,38 @@ struct Connection
 		ss << srcIP << "|" << srcPort << "|" << destIP << "|" << destPort;
 		return ss.str();
 	}
-	// Phase phase;
+	Phase phase = Phase::SYNC;
 };
-//
-//bool operator == (const Connection& conn1, const Connection& conn2) 
-//{
-//	return conn1.destPort == conn2.destPort;
-//}
+
+void setPhase(std::map<Connection, std::list<pcpp::Packet>>& connPackets, Connection& conn, Phase phase) {
+	auto entry = connPackets.find(conn);
+	if (entry != connPackets.end())
+	{
+		auto const value = std::move(entry->second);
+		auto key = entry->first;
+		Connection newConn = Connection{ key.srcIP, key.srcPort, key.destIP, key.destPort, phase};
+		connPackets.erase(entry);
+		connPackets.insert({ newConn, std::move(value) });
+	}
+}
+
+bool operator == (const Connection& conn1, const Connection& conn2) 
+{
+	Connection c1 = const_cast<Connection&>(conn1);
+	Connection c2 = const_cast<Connection&>(conn2);
+	return 
+		c1.srcIP == c2.srcIP || 
+		c1.srcPort == c2.srcPort ||
+		c1.destIP == c2.destIP ||
+		c1.destPort == c2.destPort;
+}
 
 bool operator <(const Connection& conn1, const Connection& conn2)
 {
-	return (conn1.srcPort < conn2.srcPort) ||
-		(conn1.destPort < conn2.destPort);
+	Connection c1 = const_cast<Connection&>(conn1);
+	Connection c2 = const_cast<Connection&>(conn2);
+	return c1.srcPort < c2.srcPort || 
+(c1.srcPort == c2.srcPort && c1.srcIP < c2.srcIP);
 }
 
 void printInfoByConns(
@@ -59,7 +80,7 @@ void printInfoByConns(
 	for (it = connPackets.begin(); it != connPackets.end(); it++) {
 		Connection conn = it->first;
 		std::list<pcpp::Packet> pkgs = it->second;
-		std::cout << conn.toString() << " pkgs nb: " << pkgs.size() << std::endl;
+		std::cout << conn.phase << "|" << conn.toString() << " pkgs nb: " << pkgs.size() << std::endl;
 	}
 	std::cout << "Last: " << lastPkgs.size();
 }
@@ -72,26 +93,21 @@ std::pair<Connection, bool> getConn(
 	std::map<Connection, std::list<pcpp::Packet>>& connPackets
 ) {
 	Connection conn = Connection{ srcIP, srcPort, destIP, destPort };
-	
-	if (connPackets.find(conn) != connPackets.end()) {
-		return std::make_pair(conn, true);
+	auto connFind = connPackets.find(conn);
+	if (connFind != connPackets.end()) {
+		return std::make_pair(connFind->first, true);
 	}
-	else {
-		std::cout << "double" << std::endl;
-	}
-	
+
 	conn = Connection{ destIP, destPort, srcIP, srcPort };
-	if (connPackets.find(conn) != connPackets.end()) {
-		return std::make_pair(conn, true);
-	}
-	else {
-		std::cout << "double" << std::endl;
+	connFind = connPackets.find(conn);
+	if (connFind != connPackets.end()) {
+		return std::make_pair(connFind->first, true);
 	}
 
 	return std::make_pair(conn, false);
 }
 
-bool check4SYN(pcpp::TcpLayer* tcpLayer) 
+bool check4SYN(pcpp::TcpLayer* tcpLayer)
 {
 	return tcpLayer->getTcpHeader()->synFlag;
 }
@@ -101,12 +117,17 @@ bool check4ACK(pcpp::TcpLayer* tcpLayer)
 	return tcpLayer->getTcpHeader()->ackFlag;
 }
 
+bool check4FIN(pcpp::TcpLayer* tcpLayer)
+{
+	return tcpLayer->getTcpHeader()->finFlag;
+}
+
 void analyzePkg(
 	pcpp::Packet& packet,
-	std::map<Connection,
-	std::list<pcpp::Packet>>&connPackets,
-	std::list<pcpp::Packet>& lastPkgs
-)	
+	std::map<Connection, std::list<pcpp::Packet>>& connPackets,
+	std::list<pcpp::Packet>& lastPkgs,
+	std::vector<std::list<pcpp::Packet>>& closedTcpSessions
+)
 {
 
 	if (!packet.isPacketOfType(pcpp::TCP) && !packet.isPacketOfType(pcpp::SSL)) {
@@ -140,16 +161,72 @@ void analyzePkg(
 	uint16_t srcPort = tcpLayer->getSrcPort();
 	pcpp::IPAddress destIP = ipv4Layer->getDstIPAddress();
 	uint16_t destPort = tcpLayer->getDstPort();
+	pcpp::Packet lastPkg;
+	pcpp::TcpLayer* lastPkgTcpLayer;
+	
 
 	Connection conn = Connection{ srcIP, srcPort, destIP, destPort };
 	if (check4SYN(tcpLayer) && !check4ACK(tcpLayer)) {
-		std::list<pcpp::Packet> pkgs = {packet};
+		std::list<pcpp::Packet> pkgs = { packet };
 		connPackets.emplace(conn, pkgs);
+		setPhase(connPackets, conn, Phase::SYNC);
 	}
 	else {
-		lastPkgs.push_back(packet);
-	}
+		std::pair<Connection, bool> conn_pair = getConn(srcIP, srcPort, destIP, destPort, connPackets);
+		if (conn_pair.second) {
+			if (check4ACK(tcpLayer) && !(check4SYN(tcpLayer) || check4FIN(tcpLayer))) {
+				//if (connPackets[conn_pair.first].size() > 0) {
+					lastPkg = connPackets[conn_pair.first].back();
+					lastPkgTcpLayer = lastPkg.getLayerOfType<pcpp::TcpLayer>();
+					if (check4FIN(lastPkgTcpLayer) && check4ACK(lastPkgTcpLayer)) {
+						connPackets[conn_pair.first].push_back(packet);
+						if (conn_pair.first.phase == Phase::CLOSE2) {
+							closedTcpSessions.push_back(connPackets[conn_pair.first]);
+							connPackets.erase(conn_pair.first);
+						}
+					}
+				//}
+			}
+			else if (check4ACK(tcpLayer) && check4FIN(tcpLayer)) {
+				if (conn_pair.first.phase == Phase::CLOSE1) {
+					setPhase(connPackets, conn_pair.first, Phase::CLOSE2);
+					// conn_pair.first.phase = Phase::CLOSE2;
+				}
+				else {
+					setPhase(connPackets, conn_pair.first, Phase::CLOSE1);
+					// conn_pair.first.phase = Phase::CLOSE1;
+				};
+				connPackets[conn_pair.first].push_back(packet);
+			}
+			else {
+				setPhase(connPackets, conn_pair.first, Phase::CONN);
+				connPackets[conn_pair.first].push_back(packet);
+			}
 
+
+		}
+		else {
+			lastPkgs.push_back(packet);
+		}
+
+		//if (check4ACK(tcpLayer) && !(check4SYN(tcpLayer) || check4FIN(tcpLayer))) {
+		//	if (connPackets[conn_pair.first].size() > 0) {
+		//		lastPkg = connPackets[conn_pair.first].back();
+		//		lastPkgTcpLayer = lastPkg.getLayerOfType<pcpp::TcpLayer>();
+		//		if (check4FIN(lastPkgTcpLayer) && check4ACK(lastPkgTcpLayer)) {
+		//			connPackets[conn_pair.first].push_back(packet);
+		//			tcpSessions.push_back(connPackets[conn_pair.first]);
+		//			connPackets.erase(conn_pair.first);
+		//		}
+		//	}
+		//}
+		//else if (conn_pair.second) {
+		//	connPackets[conn_pair.first].push_back(packet);
+		//}
+		//else {
+		//	lastPkgs.push_back(packet);
+		//}
+	}
 
 	//Connection conn = getConn();
 }
@@ -158,7 +235,8 @@ void parseFromFile(
 	std::string &fileName, 
 	std::map<Connection, 
 	std::list<pcpp::Packet>> &connPackets, 
-	std::list<pcpp::Packet> &lastPkgs
+	std::list<pcpp::Packet> &lastPkgs,
+	std::vector<std::list<pcpp::Packet>>& closedTcpSessions
 )
 {
 	pcpp::IFileReaderDevice* reader = pcpp::IFileReaderDevice::getReader(fileName);
@@ -172,18 +250,19 @@ void parseFromFile(
 	while (reader->getNextPacket(rawPacket)) {
 		pcpp::Packet parsedPacket(&rawPacket);
 
-		analyzePkg(parsedPacket, connPackets, lastPkgs);
+		analyzePkg(parsedPacket, connPackets, lastPkgs, closedTcpSessions);
 	}
 
 }
 
 int main() {
 	std::map<Connection, std::list<pcpp::Packet>> connPackets;
+	std::vector<std::list<pcpp::Packet>> closedTcpSessions;
 	std::list<pcpp::Packet> lastPkgs;
 
 	std::string fileName = "tcp_tls_.pcap";
 
-	parseFromFile(fileName, connPackets, lastPkgs);
+	parseFromFile(fileName, connPackets, lastPkgs, closedTcpSessions);
 	printInfoByConns(connPackets, lastPkgs);
 
 	return 0;
