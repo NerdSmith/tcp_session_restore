@@ -31,12 +31,36 @@ struct Connection
 	pcpp::IPAddress destIP;
 	uint16_t destPort;
 
-	std::string toString() {
+	Phase phase = Phase::SYNC;
+
+	std::string toString(std::string sep = "|") {
 		std::stringstream ss;
-		ss << srcIP << "|" << srcPort << "|" << destIP << "|" << destPort;
+		ss << srcIP << sep << srcPort << sep << destIP << sep << destPort << sep;
+		switch (phase) {
+			case SYNC:
+				ss << "SYNC";
+				break;
+			case CONN:
+				ss << "CONN";
+				break;
+			case CLOSE1:
+				ss << "CLOSE1";
+				break;
+			case CLOSE2:
+				ss << "CLOSE2";
+				break;
+			default:
+				ss << "NONE";
+				break;
+		}
+
+			
 		return ss.str();
 	}
-	Phase phase = Phase::SYNC;
+
+	std::string toFilename() {
+		return this->toString("%") + ".pcap";
+	}
 };
 
 void setPhase(std::map<Connection, std::list<pcpp::Packet>>& connPackets, Connection& conn, Phase phase) {
@@ -70,9 +94,22 @@ bool operator <(const Connection& conn1, const Connection& conn2)
 (c1.srcPort == c2.srcPort && c1.srcIP < c2.srcIP);
 }
 
+int createDirIfNotExist(std::string dirName) {
+
+	if (CreateDirectoryA(dirName.c_str(), NULL) ||
+		ERROR_ALREADY_EXISTS == GetLastError()) {
+		printf("Dir is OK\n");
+		return 0;
+	}
+
+	printf("Can't create dir\n");
+	return 1;
+}
+
 void printInfoByConns(
 	std::map<Connection, std::list<pcpp::Packet>>& connPackets,
-	std::list<pcpp::Packet>& lastPkgs
+	std::list<pcpp::Packet>& lastPkgs,
+	std::map<Connection, std::list<pcpp::Packet>>& closedTcpSessions
 )
 {
 	std::cout << "Conns: " << connPackets.size() << std::endl;
@@ -82,7 +119,13 @@ void printInfoByConns(
 		std::list<pcpp::Packet> pkgs = it->second;
 		std::cout << conn.phase << "|" << conn.toString() << " pkgs nb: " << pkgs.size() << std::endl;
 	}
-	std::cout << "Last: " << lastPkgs.size();
+	std::cout << "Closed: " << std::endl;
+	for (it = closedTcpSessions.begin(); it != closedTcpSessions.end(); it++) {
+		Connection conn = it->first;
+		std::list<pcpp::Packet> pkgs = it->second;
+		std::cout << conn.phase << "|" << conn.toString() << " pkgs nb: " << pkgs.size() << std::endl;
+	}
+	std::cout << "Last: " << lastPkgs.size() << std::endl;
 }
 
 std::pair<Connection, bool> getConn(
@@ -126,7 +169,7 @@ void analyzePkg(
 	pcpp::Packet& packet,
 	std::map<Connection, std::list<pcpp::Packet>>& connPackets,
 	std::list<pcpp::Packet>& lastPkgs,
-	std::vector<std::list<pcpp::Packet>>& closedTcpSessions
+	std::map<Connection, std::list<pcpp::Packet>>& closedTcpSessions
 )
 {
 
@@ -147,16 +190,6 @@ void analyzePkg(
 		EXIT_WITH_ERROR("Something went wrong, couldn't find TCP layer");
 	}
 
-	//if (tcpLayer->getDstPort() == 8888) {
-	//	if (check4SYN(tcpLayer)) {
-	//		std::cout << "syn" << std::endl;
-	//	}
-	//	if (check4ACK(tcpLayer)) {
-	//		std::cout << "ack" << std::endl;
-	//	}
-	//	std::cout << "asd1" << std::endl;
-	//}
-
 	pcpp::IPAddress srcIP = ipv4Layer->getSrcIPAddress();
 	uint16_t srcPort = tcpLayer->getSrcPort();
 	pcpp::IPAddress destIP = ipv4Layer->getDstIPAddress();
@@ -175,26 +208,20 @@ void analyzePkg(
 		std::pair<Connection, bool> conn_pair = getConn(srcIP, srcPort, destIP, destPort, connPackets);
 		if (conn_pair.second) {
 			if (check4ACK(tcpLayer) && !(check4SYN(tcpLayer) || check4FIN(tcpLayer))) {
-				//if (connPackets[conn_pair.first].size() > 0) {
-					lastPkg = connPackets[conn_pair.first].back();
-					lastPkgTcpLayer = lastPkg.getLayerOfType<pcpp::TcpLayer>();
-					if (check4FIN(lastPkgTcpLayer) && check4ACK(lastPkgTcpLayer)) {
-						connPackets[conn_pair.first].push_back(packet);
-						if (conn_pair.first.phase == Phase::CLOSE2) {
-							closedTcpSessions.push_back(connPackets[conn_pair.first]);
-							connPackets.erase(conn_pair.first);
-						}
-					}
-				//}
+				lastPkg = connPackets[conn_pair.first].back();
+				lastPkgTcpLayer = lastPkg.getLayerOfType<pcpp::TcpLayer>();
+				connPackets[conn_pair.first].push_back(packet);
+				if (check4FIN(lastPkgTcpLayer) && check4ACK(lastPkgTcpLayer) && (conn_pair.first.phase == Phase::CLOSE2)) {
+						closedTcpSessions.emplace(conn_pair.first, connPackets[conn_pair.first]);
+						connPackets.erase(conn_pair.first);
+				}
 			}
 			else if (check4ACK(tcpLayer) && check4FIN(tcpLayer)) {
 				if (conn_pair.first.phase == Phase::CLOSE1) {
 					setPhase(connPackets, conn_pair.first, Phase::CLOSE2);
-					// conn_pair.first.phase = Phase::CLOSE2;
 				}
 				else {
 					setPhase(connPackets, conn_pair.first, Phase::CLOSE1);
-					// conn_pair.first.phase = Phase::CLOSE1;
 				};
 				connPackets[conn_pair.first].push_back(packet);
 			}
@@ -208,27 +235,7 @@ void analyzePkg(
 		else {
 			lastPkgs.push_back(packet);
 		}
-
-		//if (check4ACK(tcpLayer) && !(check4SYN(tcpLayer) || check4FIN(tcpLayer))) {
-		//	if (connPackets[conn_pair.first].size() > 0) {
-		//		lastPkg = connPackets[conn_pair.first].back();
-		//		lastPkgTcpLayer = lastPkg.getLayerOfType<pcpp::TcpLayer>();
-		//		if (check4FIN(lastPkgTcpLayer) && check4ACK(lastPkgTcpLayer)) {
-		//			connPackets[conn_pair.first].push_back(packet);
-		//			tcpSessions.push_back(connPackets[conn_pair.first]);
-		//			connPackets.erase(conn_pair.first);
-		//		}
-		//	}
-		//}
-		//else if (conn_pair.second) {
-		//	connPackets[conn_pair.first].push_back(packet);
-		//}
-		//else {
-		//	lastPkgs.push_back(packet);
-		//}
 	}
-
-	//Connection conn = getConn();
 }
 
 void parseFromFile(
@@ -236,7 +243,7 @@ void parseFromFile(
 	std::map<Connection, 
 	std::list<pcpp::Packet>> &connPackets, 
 	std::list<pcpp::Packet> &lastPkgs,
-	std::vector<std::list<pcpp::Packet>>& closedTcpSessions
+	std::map<Connection, std::list<pcpp::Packet>>& closedTcpSessions
 )
 {
 	pcpp::IFileReaderDevice* reader = pcpp::IFileReaderDevice::getReader(fileName);
@@ -255,15 +262,54 @@ void parseFromFile(
 
 }
 
+void writeToFile(
+	std::string dirName,
+	Connection& conn,
+	std::list<pcpp::Packet>& pkgs
+)
+{
+	std::string filename = dirName + "/" + conn.toFilename();
+	pcpp::PcapFileWriterDevice pcapWriter(filename);
+
+	if (!pcapWriter.open())
+	{
+		EXIT_WITH_ERROR("Cannot open output.pcap for writing");
+	}
+
+	for (auto const& p : pkgs) {
+		pcapWriter.writePacket(*p.getRawPacket());
+	}
+}
+
+void writeToFiles(
+	std::string dirName,
+	std::map<Connection, std::list<pcpp::Packet>> connPkgs
+)	
+{
+	createDirIfNotExist(dirName);
+	std::map<Connection, std::list<pcpp::Packet>>::iterator it;
+	for (it = connPkgs.begin(); it != connPkgs.end(); it++) {
+		Connection conn = it->first;
+		std::list<pcpp::Packet> pkgs = it->second;
+		writeToFile(dirName, conn, pkgs);
+	}
+}
+
 int main() {
 	std::map<Connection, std::list<pcpp::Packet>> connPackets;
-	std::vector<std::list<pcpp::Packet>> closedTcpSessions;
+	std::map<Connection, std::list<pcpp::Packet>> closedTcpSessions;
 	std::list<pcpp::Packet> lastPkgs;
 
 	std::string fileName = "tcp_tls_.pcap";
 
+	std::string sessionsDir = "sessions";
+	std::string activeSessionsDir = "active_sessions";
+
 	parseFromFile(fileName, connPackets, lastPkgs, closedTcpSessions);
-	printInfoByConns(connPackets, lastPkgs);
+	printInfoByConns(connPackets, lastPkgs, closedTcpSessions);
+
+	writeToFiles(sessionsDir, closedTcpSessions);
+	writeToFiles(activeSessionsDir, connPackets);
 
 	return 0;
 }
