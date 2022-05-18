@@ -62,7 +62,10 @@ struct Connection
 	}
 };
 
-void setPhase(std::map<Connection, std::list<pcpp::Packet>>& connPackets, Connection& conn, Phase phase) 
+void setPhase(
+	std::map<Connection, std::list<pcpp::Packet>>& connPackets, 
+	Connection& conn, Phase phase
+) 
 {
 	auto entry = connPackets.find(conn);
 	if (entry != connPackets.end())
@@ -86,7 +89,7 @@ bool operator == (const Connection& conn1, const Connection& conn2)
 		c1.destPort == c2.destPort;
 }
 
-bool operator <(const Connection& conn1, const Connection& conn2)
+bool operator < (const Connection& conn1, const Connection& conn2)
 {
 	Connection c1 = const_cast<Connection&>(conn1);
 	Connection c2 = const_cast<Connection&>(conn2);
