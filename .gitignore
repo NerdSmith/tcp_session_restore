@@ -363,3 +363,7 @@ MigrationBackup/
 FodyWeavers.xsd
 /tcp_session_restore/active_sessions
 /tcp_session_restore/sessions
+
+
+sessions_*
+active_sessions_*

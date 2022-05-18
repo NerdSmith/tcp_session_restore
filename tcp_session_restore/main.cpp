@@ -299,6 +299,12 @@ void writeToFiles(
 	}
 }
 
+std::string getFileName(std::string fullFilename)
+{
+	std::string slice = fullFilename.substr(0, fullFilename.size() - 5);
+	return slice;
+}
+
 int main() 
 {
 	std::map<Connection, std::list<pcpp::Packet>> connPackets;
@@ -307,8 +313,8 @@ int main()
 
 	std::string fileName = "tcp_tls_.pcap";
 
-	std::string sessionsDir = "sessions";
-	std::string activeSessionsDir = "active_sessions";
+	std::string sessionsDir = "sessions_" + getFileName(fileName);
+	std::string activeSessionsDir = "active_sessions_" + getFileName(fileName);
 
 	parseFromFile(fileName, connPackets, lastPkgs, closedTcpSessions);
 	printInfoByConns(connPackets, lastPkgs, closedTcpSessions);
