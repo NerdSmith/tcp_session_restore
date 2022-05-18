@@ -16,7 +16,8 @@
 	exit(1); \
 	} while(0)
 
-static enum Phase {
+enum Phase 
+{
 	SYNC = 0, 
 	CONN = 1, 
 	CLOSE1 = 2,
@@ -63,7 +64,8 @@ struct Connection
 	}
 };
 
-void setPhase(std::map<Connection, std::list<pcpp::Packet>>& connPackets, Connection& conn, Phase phase) {
+void setPhase(std::map<Connection, std::list<pcpp::Packet>>& connPackets, Connection& conn, Phase phase) 
+{
 	auto entry = connPackets.find(conn);
 	if (entry != connPackets.end())
 	{
@@ -94,7 +96,8 @@ bool operator <(const Connection& conn1, const Connection& conn2)
 (c1.srcPort == c2.srcPort && c1.srcIP < c2.srcIP);
 }
 
-int createDirIfNotExist(std::string dirName) {
+int createDirIfNotExist(std::string dirName) 
+{
 
 	if (CreateDirectoryA(dirName.c_str(), NULL) ||
 		ERROR_ALREADY_EXISTS == GetLastError()) {
@@ -134,7 +137,8 @@ std::pair<Connection, bool> getConn(
 	pcpp::IPAddress destIP,
 	uint16_t destPort,
 	std::map<Connection, std::list<pcpp::Packet>>& connPackets
-) {
+) 
+{
 	Connection conn = Connection{ srcIP, srcPort, destIP, destPort };
 	auto connFind = connPackets.find(conn);
 	if (connFind != connPackets.end()) {
@@ -295,7 +299,8 @@ void writeToFiles(
 	}
 }
 
-int main() {
+int main() 
+{
 	std::map<Connection, std::list<pcpp::Packet>> connPackets;
 	std::map<Connection, std::list<pcpp::Packet>> closedTcpSessions;
 	std::list<pcpp::Packet> lastPkgs;
