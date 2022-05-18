@@ -1,4 +1,3 @@
-#include <iostream>
 #include <map>
 #include <list>
 #include <vector>
@@ -9,12 +8,11 @@
 #include "PacketUtils.h"
 #include "stdlib.h"
 #include "PcapFileDevice.h"
-#include "SystemUtils.h"
 
-#define EXIT_WITH_ERROR(reason) do { \
-	std::cout << std::endl << "ERROR: " << reason << std::endl << std::endl; \
-	exit(1); \
-	} while(0)
+#include "comUtils.h"
+#include "strUtils.h"
+
+
 
 enum Phase 
 {
@@ -96,18 +94,6 @@ bool operator <(const Connection& conn1, const Connection& conn2)
 (c1.srcPort == c2.srcPort && c1.srcIP < c2.srcIP);
 }
 
-int createDirIfNotExist(std::string dirName) 
-{
-
-	if (CreateDirectoryA(dirName.c_str(), NULL) ||
-		ERROR_ALREADY_EXISTS == GetLastError()) {
-		printf("Dir is OK\n");
-		return 0;
-	}
-
-	printf("Can't create dir\n");
-	return 1;
-}
 
 void printInfoByConns(
 	std::map<Connection, std::list<pcpp::Packet>>& connPackets,
@@ -244,8 +230,7 @@ void analyzePkg(
 
 void parseFromFile(
 	std::string &fileName, 
-	std::map<Connection, 
-	std::list<pcpp::Packet>> &connPackets, 
+	std::map<Connection, std::list<pcpp::Packet>>& connPackets, 
 	std::list<pcpp::Packet> &lastPkgs,
 	std::map<Connection, std::list<pcpp::Packet>>& closedTcpSessions
 )
@@ -297,12 +282,6 @@ void writeToFiles(
 		std::list<pcpp::Packet> pkgs = it->second;
 		writeToFile(dirName, conn, pkgs);
 	}
-}
-
-std::string getFileName(std::string fullFilename)
-{
-	std::string slice = fullFilename.substr(0, fullFilename.size() - 5);
-	return slice;
 }
 
 int main() 

@@ -141,7 +141,13 @@
     </Link>
   </ItemDefinitionGroup>
   <ItemGroup>
+    <ClCompile Include="comUtils.cpp" />
     <ClCompile Include="main.cpp" />
+    <ClCompile Include="strUtils.cpp" />
+  </ItemGroup>
+  <ItemGroup>
+    <ClInclude Include="comUtils.h" />
+    <ClInclude Include="strUtils.h" />
   </ItemGroup>
   <Import Project="$(VCTargetsPath)\Microsoft.Cpp.targets" />
   <ImportGroup Label="ExtensionTargets">
