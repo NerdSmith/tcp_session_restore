@@ -3,64 +3,15 @@
 #include <vector>
 #include <utility>
 #include <sstream>
-#include "TcpLayer.h"
 #include "IPv4Layer.h"
 #include "PacketUtils.h"
-#include "stdlib.h"
-#include "PcapFileDevice.h"
 
+
+#include "connection.h"
 #include "comUtils.h"
 #include "strUtils.h"
+#include "pkgsUtils.h"
 
-
-
-enum Phase 
-{
-	SYNC = 0, 
-	CONN = 1, 
-	CLOSE1 = 2,
-	CLOSE2 = 3
-};
-
-struct Connection 
-{
-	pcpp::IPAddress srcIP;
-	uint16_t srcPort;
-
-	pcpp::IPAddress destIP;
-	uint16_t destPort;
-
-	Phase phase = Phase::SYNC;
-
-	std::string toString(std::string sep = "|") {
-		std::stringstream ss;
-		ss << srcIP << sep << srcPort << sep << destIP << sep << destPort << sep;
-		switch (phase) {
-			case SYNC:
-				ss << "SYNC";
-				break;
-			case CONN:
-				ss << "CONN";
-				break;
-			case CLOSE1:
-				ss << "CLOSE1";
-				break;
-			case CLOSE2:
-				ss << "CLOSE2";
-				break;
-			default:
-				ss << "NONE";
-				break;
-		}
-
-			
-		return ss.str();
-	}
-
-	std::string toFilename() {
-		return this->toString("%") + ".pcap";
-	}
-};
 
 void setPhase(
 	std::map<Connection, std::list<pcpp::Packet>>& connPackets, 
@@ -94,30 +45,7 @@ bool operator < (const Connection& conn1, const Connection& conn2)
 	Connection c1 = const_cast<Connection&>(conn1);
 	Connection c2 = const_cast<Connection&>(conn2);
 	return c1.srcPort < c2.srcPort || 
-(c1.srcPort == c2.srcPort && c1.srcIP < c2.srcIP);
-}
-
-
-void printInfoByConns(
-	std::map<Connection, std::list<pcpp::Packet>>& connPackets,
-	std::list<pcpp::Packet>& lastPkgs,
-	std::map<Connection, std::list<pcpp::Packet>>& closedTcpSessions
-)
-{
-	std::cout << "Conns: " << connPackets.size() << std::endl;
-	std::map<Connection, std::list<pcpp::Packet>>::iterator it;
-	for (it = connPackets.begin(); it != connPackets.end(); it++) {
-		Connection conn = it->first;
-		std::list<pcpp::Packet> pkgs = it->second;
-		std::cout << conn.phase << "|" << conn.toString() << " pkgs nb: " << pkgs.size() << std::endl;
-	}
-	std::cout << "Closed: " << std::endl;
-	for (it = closedTcpSessions.begin(); it != closedTcpSessions.end(); it++) {
-		Connection conn = it->first;
-		std::list<pcpp::Packet> pkgs = it->second;
-		std::cout << conn.phase << "|" << conn.toString() << " pkgs nb: " << pkgs.size() << std::endl;
-	}
-	std::cout << "Last: " << lastPkgs.size() << std::endl;
+		(c1.srcPort == c2.srcPort && c1.srcIP < c2.srcIP);
 }
 
 std::pair<Connection, bool> getConn(
@@ -141,21 +69,6 @@ std::pair<Connection, bool> getConn(
 	}
 
 	return std::make_pair(conn, false);
-}
-
-bool check4SYN(pcpp::TcpLayer* tcpLayer)
-{
-	return tcpLayer->getTcpHeader()->synFlag;
-}
-
-bool check4ACK(pcpp::TcpLayer* tcpLayer)
-{
-	return tcpLayer->getTcpHeader()->ackFlag;
-}
-
-bool check4FIN(pcpp::TcpLayer* tcpLayer)
-{
-	return tcpLayer->getTcpHeader()->finFlag;
 }
 
 void analyzePkg(
@@ -252,39 +165,6 @@ void parseFromFile(
 		analyzePkg(parsedPacket, connPackets, lastPkgs, closedTcpSessions);
 	}
 
-}
-
-void writeToFile(
-	std::string dirName,
-	Connection& conn,
-	std::list<pcpp::Packet>& pkgs
-)
-{
-	std::string filename = dirName + "/" + conn.toFilename();
-	pcpp::PcapFileWriterDevice pcapWriter(filename);
-
-	if (!pcapWriter.open())
-	{
-		EXIT_WITH_ERROR("Cannot open output.pcap for writing");
-	}
-
-	for (auto const& p : pkgs) {
-		pcapWriter.writePacket(*p.getRawPacket());
-	}
-}
-
-void writeToFiles(
-	std::string dirName,
-	std::map<Connection, std::list<pcpp::Packet>> connPkgs
-)	
-{
-	createDirIfNotExist(dirName);
-	std::map<Connection, std::list<pcpp::Packet>>::iterator it;
-	for (it = connPkgs.begin(); it != connPkgs.end(); it++) {
-		Connection conn = it->first;
-		std::list<pcpp::Packet> pkgs = it->second;
-		writeToFile(dirName, conn, pkgs);
-	}
 }
 
 int main() 

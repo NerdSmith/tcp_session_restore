@@ -24,12 +24,21 @@
     <ClCompile Include="comUtils.cpp">
       <Filter>Исходные файлы</Filter>
     </ClCompile>
+    <ClCompile Include="pkgsUtils.cpp">
+      <Filter>Исходные файлы</Filter>
+    </ClCompile>
   </ItemGroup>
   <ItemGroup>
     <ClInclude Include="strUtils.h">
       <Filter>Исходные файлы</Filter>
     </ClInclude>
     <ClInclude Include="comUtils.h">
+      <Filter>Исходные файлы</Filter>
+    </ClInclude>
+    <ClInclude Include="pkgsUtils.h">
+      <Filter>Исходные файлы</Filter>
+    </ClInclude>
+    <ClInclude Include="connection.h">
       <Filter>Исходные файлы</Filter>
     </ClInclude>
   </ItemGroup>
