@@ -6,12 +6,10 @@
 #include "IPv4Layer.h"
 #include "PacketUtils.h"
 
-
 #include "connection.h"
 #include "comUtils.h"
 #include "strUtils.h"
 #include "pkgsUtils.h"
-
 
 void setPhase(
 	std::map<Connection, std::list<pcpp::Packet>>& connPackets, 
@@ -145,24 +143,32 @@ void analyzePkg(
 }
 
 void parseFromFile(
-	std::string &fileName, 
+	std::list<std::string> &fileNames, 
 	std::map<Connection, std::list<pcpp::Packet>>& connPackets, 
 	std::list<pcpp::Packet> &lastPkgs,
 	std::map<Connection, std::list<pcpp::Packet>>& closedTcpSessions
 )
-{
-	pcpp::IFileReaderDevice* reader = pcpp::IFileReaderDevice::getReader(fileName);
+{	
+	std::list<std::string>::iterator it;
+	pcpp::IFileReaderDevice* reader;
+	std::string currFilename;
+	for (it = fileNames.begin(); it != fileNames.end(); ++it) {
+		currFilename = *it;
+		reader = pcpp::IFileReaderDevice::getReader(currFilename);
 
-	if (!reader->open()) {
-		EXIT_WITH_ERROR("Could not open the device");
-	}
+		if (!reader->open()) {
+			EXIT_WITH_ERROR("Could not open the device");
+		}
 
-	pcpp::RawPacket rawPacket;
+		pcpp::RawPacket rawPacket;
 
-	while (reader->getNextPacket(rawPacket)) {
-		pcpp::Packet parsedPacket(&rawPacket);
+		while (reader->getNextPacket(rawPacket)) {
+			pcpp::Packet parsedPacket(&rawPacket);
 
-		analyzePkg(parsedPacket, connPackets, lastPkgs, closedTcpSessions);
+			analyzePkg(parsedPacket, connPackets, lastPkgs, closedTcpSessions);
+		}
+
+		reader->close();
 	}
 
 }
@@ -172,13 +178,17 @@ int main()
 	std::map<Connection, std::list<pcpp::Packet>> connPackets;
 	std::map<Connection, std::list<pcpp::Packet>> closedTcpSessions;
 	std::list<pcpp::Packet> lastPkgs;
+	
+	std::list<std::string> filenames;
+	filenames.push_back("test_2.pcap");
+	filenames.push_back("tcp_tls_.pcap");
+	// add more
+	//std::string fileName = "test_2.pcap";
 
-	std::string fileName = "tcp_tls_.pcap";
+	std::string sessionsDir = "sessions_" + getFileName(filenames.front());
+	std::string activeSessionsDir = "active_sessions_" + getFileName(filenames.front());
 
-	std::string sessionsDir = "sessions_" + getFileName(fileName);
-	std::string activeSessionsDir = "active_sessions_" + getFileName(fileName);
-
-	parseFromFile(fileName, connPackets, lastPkgs, closedTcpSessions);
+	parseFromFile(filenames, connPackets, lastPkgs, closedTcpSessions);
 	printInfoByConns(connPackets, lastPkgs, closedTcpSessions);
 
 	writeToFiles(sessionsDir, closedTcpSessions);
